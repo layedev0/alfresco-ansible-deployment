@@ -1,0 +1,4 @@
+roles/common/vars/Debian.yml var-naming[no-role-prefix]
+roles/common/vars/RedHat.yml var-naming[no-role-prefix]
+roles/common/vars/main.yml var-naming[no-role-prefix]
+roles/common/defaults/main.yml var-naming[no-role-prefix]

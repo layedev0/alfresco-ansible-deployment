@@ -1,0 +1,106 @@
+---
+name: Bump versions
+run-name: Bump ${{ inputs.update-type || github.event_name }} using alfresco-updatecli/${{ inputs.alfresco-updatecli-ref || 'master' }}
+
+on:
+  schedule:
+    - cron: '52 6 * * 1'
+  push:
+    branches-ignore:
+      - 'master'
+    paths:
+      - .github/workflows/bumpVersions.yml
+      - .github/updatecli/**
+  workflow_dispatch:
+    inputs:
+      alfresco-updatecli-ref:
+        description: "The version to use for alfresco/alfresco-updatecli configs"
+        type: string
+        default: master
+      update-type:
+          description: 'Which dependencies to bump'
+          type: choice
+          options:
+          - maven
+          - ami
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  DEFAULT_BRANCH_NAME: master
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    name: Bump versions
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          token: ${{ secrets.BOT_GITHUB_TOKEN }}
+
+      - name: Install Updatecli
+        uses: Alfresco/alfresco-build-tools/.github/actions/setup-updatecli@v8.24.1
+
+      - name: Checkout updatecli configs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: alfresco/alfresco-updatecli
+          ref: ${{ inputs.alfresco-updatecli-ref || 'master' }}
+          path: alfresco-updatecli
+
+      - name: Updatecli scm cache
+        if: inputs.update-type == 'maven' || github.event_name == 'push'
+        uses: actions/cache@v4
+        with:
+          path: /tmp/updatecli/github
+          key: updatecli-v1-${{ hashFiles('.github/updatecli/updatecli_amps.tpl') }}
+          restore-keys: |
+            updatecli-v1-
+
+      - name: Updatecli apply for Maven
+        if: inputs.update-type == 'maven' || github.event_name == 'push'
+        shell: bash
+        run: |
+          set -x
+          for version_file in .github/updatecli/updatecli_maven_*_values.yml; do
+            updatecli apply --config .github/updatecli/updatecli_maven.tpl \
+              -v alfresco-updatecli/deployments/values/supported-matrix.yaml \
+              -v .github/updatecli/updatecli_maven_values.yml \
+              -v $version_file
+            updatecli apply --config .github/updatecli/updatecli_amps.tpl \
+              -v .github/updatecli/updatecli_amps_values.yml \
+              -v $version_file
+          done
+        env:
+          NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+          NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+          UPDATECLI_GITHUB_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+          UPDATECLI_GITHUB_USERNAME: ${{ vars.BOT_GITHUB_USERNAME }}
+
+      - name: Updatecli apply for AMIs
+        if: inputs.update-type == 'ami' || github.event_name == 'schedule'
+        shell: bash
+        run: |
+          updatecli apply --config .github/updatecli/updatecli_amis.tpl \
+            -v .github/updatecli/updatecli_amis_values.yml
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-west-1
+          UPDATECLI_GITHUB_TOKEN: ${{ secrets.BOT_GITHUB_TOKEN }}
+          UPDATECLI_GITHUB_USERNAME: ${{ vars.BOT_GITHUB_USERNAME }}
+          UPDATECLI_GITHUB_EMAIL: ${{ vars.BOT_GITHUB_EMAIL }}
+
+      - name: Git Auto Commit
+        uses: stefanzweifel/git-auto-commit-action@778341af668090896ca464160c2def5d1d1a3eb0 # v6.0.1
+        with:
+          commit_message: |
+            🛠 Updatecli pipeline artifacts bump
+          commit_user_name: ${{ vars.BOT_GITHUB_USERNAME }}
+          commit_user_email: ${{ vars.BOT_GITHUB_EMAIL }}
+          branch: ${{ github.ref_name == env.DEFAULT_BRANCH_NAME && 'updatecli-bump-versions' || github.ref_name }}
+          push_options: ${{ github.ref_name == env.DEFAULT_BRANCH_NAME && '--force' || '' }}

@@ -1,0 +1,41 @@
+name: kics
+
+on:
+  pull_request:
+    branches:
+      - master
+      - 'next/**'
+    paths:
+      - 'playbooks/**'
+      - 'roles/**'
+      - '.github/workflows/kics.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'playbooks/**'
+      - 'roles/**'
+      - '.github/workflows/kics.yml'
+
+permissions:
+  security-events: write
+
+jobs:
+  kics:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run KICS Scan
+        uses: checkmarx/kics-github-action@c06a133a98c75c2f920014d688015a5fb18095a4 # v2.1.10
+        with:
+          path: 'playbooks,roles'
+          ignore_on_exit: results
+          output_path: report-dir/
+          output_formats: 'sarif'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          enable_jobs_summary: true
+          platform_type: ansible
+          disable_secrets: true
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        with:
+          sarif_file: report-dir/results.sarif
